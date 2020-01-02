@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2018 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2019 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -44,7 +44,11 @@ namespace OpenRA
 				{
 					try
 					{
-						traits.Add(LoadTraitInfo(creator, t.Key.Split('@')[0], t.Value));
+						// HACK: The linter does not want to crash when a trait doesn't exist but only print an error instead
+						// LoadTraitInfo will only return null to signal us to abort here if the linter is running
+						var trait = LoadTraitInfo(creator, t.Key.Split('@')[0], t.Value);
+						if (trait != null)
+							traits.Add(trait);
 					}
 					catch (FieldLoader.MissingFieldsException e)
 					{
@@ -73,7 +77,13 @@ namespace OpenRA
 			if (!string.IsNullOrEmpty(my.Value))
 				throw new YamlException("Junk value `{0}` on trait node {1}"
 				.F(my.Value, traitName));
+
+			// HACK: The linter does not want to crash when a trait doesn't exist but only print an error instead
+			// ObjectCreator will only return null to signal us to abort here if the linter is running
 			var info = creator.CreateObject<ITraitInfo>(traitName + "Info");
+			if (info == null)
+				return null;
+
 			try
 			{
 				FieldLoader.Load(info, my);
@@ -147,20 +157,6 @@ namespace OpenRA
 				.Select(t => t.GetGenericArguments()[0]);
 		}
 
-		public IEnumerable<Pair<string, Type>> GetInitKeys()
-		{
-			var inits = traits.WithInterface<ITraitInfo>().SelectMany(
-				t => t.GetType().GetInterfaces()
-					.Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(UsesInit<>))
-					.Select(i => i.GetGenericArguments()[0])).ToList();
-
-			inits.Add(typeof(OwnerInit));		/* not exposed by a trait; this is used by the Actor itself */
-
-			return inits.Select(
-				i => Pair.New(
-					i.Name.Replace("Init", ""), i));
-		}
-
 		public bool HasTraitInfo<T>() where T : ITraitInfoInterface { return traits.Contains<T>(); }
 		public T TraitInfo<T>() where T : ITraitInfoInterface { return traits.Get<T>(); }
 		public T TraitInfoOrDefault<T>() where T : ITraitInfoInterface { return traits.GetOrDefault<T>(); }
@@ -169,7 +165,7 @@ namespace OpenRA
 		public BitSet<TargetableType> GetAllTargetTypes()
 		{
 			// PERF: Avoid LINQ.
-			var targetTypes = new BitSet<TargetableType>();
+			var targetTypes = default(BitSet<TargetableType>);
 			foreach (var targetable in TraitInfos<ITargetableInfo>())
 				targetTypes = targetTypes.Union(targetable.GetTargetTypes());
 			return targetTypes;

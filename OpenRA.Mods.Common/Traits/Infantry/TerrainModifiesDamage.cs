@@ -1,16 +1,15 @@
- #region Copyright & License Information
+#region Copyright & License Information
 /*
- * Copyright 2007-2018 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2019 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
  * the License, or (at your option) any later version. For more
  * information, see COPYING.
  */
- #endregion
+#endregion
 
 using System.Collections.Generic;
-using OpenRA.Mods.Common.Warheads;
 using OpenRA.Traits;
 
 namespace OpenRA.Mods.Common.Traits
@@ -43,7 +42,7 @@ namespace OpenRA.Mods.Common.Traits
 
 		int IDamageModifier.GetDamageModifier(Actor attacker, Damage damage)
 		{
-			if (attacker.Owner.IsAlliedWith(self.Owner) && damage.Value < 0 && !Info.ModifyHealing)
+			if (!Info.ModifyHealing && attacker.Owner.IsAlliedWith(self.Owner) && damage != null && damage.Value < 0)
 				return FullDamage;
 
 			var world = self.World;

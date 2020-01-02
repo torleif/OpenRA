@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2018 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2019 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -63,49 +63,44 @@ namespace OpenRA.Mods.Common.Traits
 		ConditionManager conditionManager;
 
 		// HACK: Temporarily needed until Rearm activity is gone for good
-		[Sync] public int RemainingTicks;
+		[Sync]
+		public int RemainingTicks;
 
-		[Sync] int currentAmmo;
+		[Sync]
+		public int CurrentAmmoCount { get; private set; }
+
+		public bool HasAmmo { get { return CurrentAmmoCount > 0; } }
+		public bool HasFullAmmo { get { return CurrentAmmoCount == Info.Ammo; } }
 
 		public AmmoPool(Actor self, AmmoPoolInfo info)
 		{
 			Info = info;
-			currentAmmo = Info.InitialAmmo < Info.Ammo && Info.InitialAmmo >= 0 ? Info.InitialAmmo : Info.Ammo;
+			CurrentAmmoCount = Info.InitialAmmo < Info.Ammo && Info.InitialAmmo >= 0 ? Info.InitialAmmo : Info.Ammo;
 		}
-
-		public int GetAmmoCount() { return currentAmmo; }
-		public bool FullAmmo() { return currentAmmo == Info.Ammo; }
-		public bool HasAmmo() { return currentAmmo > 0; }
 
 		public bool GiveAmmo(Actor self, int count)
 		{
-			if (currentAmmo >= Info.Ammo || count < 0)
+			if (CurrentAmmoCount >= Info.Ammo || count < 0)
 				return false;
 
-			currentAmmo = (currentAmmo + count).Clamp(0, Info.Ammo);
+			CurrentAmmoCount = (CurrentAmmoCount + count).Clamp(0, Info.Ammo);
 			UpdateCondition(self);
 			return true;
 		}
 
 		public bool TakeAmmo(Actor self, int count)
 		{
-			if (currentAmmo <= 0 || count < 0)
+			if (CurrentAmmoCount <= 0 || count < 0)
 				return false;
 
-			currentAmmo = (currentAmmo - count).Clamp(0, Info.Ammo);
+			CurrentAmmoCount = (CurrentAmmoCount - count).Clamp(0, Info.Ammo);
 			UpdateCondition(self);
 			return true;
 		}
 
-		// This mostly serves to avoid complicated ReloadAmmoPool look-ups in various other places.
-		// TODO: Investigate removing this when the Rearm activity is replaced with a condition-based solution.
-		public bool AutoReloads { get; private set; }
-
 		void INotifyCreated.Created(Actor self)
 		{
 			conditionManager = self.TraitOrDefault<ConditionManager>();
-			AutoReloads = self.TraitsImplementing<ReloadAmmoPool>().Any(r => r.Info.AmmoPool == Info.Name && r.Info.RequiresCondition == null);
-
 			UpdateCondition(self);
 
 			// HACK: Temporarily needed until Rearm activity is gone for good
@@ -125,10 +120,10 @@ namespace OpenRA.Mods.Common.Traits
 			if (conditionManager == null || string.IsNullOrEmpty(Info.AmmoCondition))
 				return;
 
-			while (currentAmmo > tokens.Count && tokens.Count < Info.Ammo)
+			while (CurrentAmmoCount > tokens.Count && tokens.Count < Info.Ammo)
 				tokens.Push(conditionManager.GrantCondition(self, Info.AmmoCondition));
 
-			while (currentAmmo < tokens.Count && tokens.Count > 0)
+			while (CurrentAmmoCount < tokens.Count && tokens.Count > 0)
 				conditionManager.RevokeCondition(self, tokens.Pop());
 		}
 
@@ -137,7 +132,7 @@ namespace OpenRA.Mods.Common.Traits
 			var pips = Info.PipCount >= 0 ? Info.PipCount : Info.Ammo;
 
 			return Enumerable.Range(0, pips).Select(i =>
-				(currentAmmo * pips) / Info.Ammo > i ?
+				(CurrentAmmoCount * pips) / Info.Ammo > i ?
 				Info.PipType : Info.PipTypeEmpty);
 		}
 	}

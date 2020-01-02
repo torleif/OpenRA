@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2018 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2019 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,7 +11,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using OpenRA.Graphics;
 using OpenRA.Mods.Common.Traits.Render;
@@ -106,37 +105,37 @@ namespace OpenRA.Mods.Common.Traits
 
 		public EditorActorPreview Add(ActorReference reference) { return Add(NextActorName(), reference); }
 
-		EditorActorPreview Add(string id, ActorReference reference, bool initialSetup = false)
+		public EditorActorPreview Add(string id, ActorReference reference, bool initialSetup = false)
 		{
 			var owner = Players.Players[reference.InitDict.Get<OwnerInit>().PlayerName];
 
 			var preview = new EditorActorPreview(worldRenderer, id, reference, owner);
-			previews.Add(preview);
 
+			Add(preview, initialSetup);
+
+			return preview;
+		}
+
+		public void Add(EditorActorPreview preview, bool initialSetup = false)
+		{
+			previews.Add(preview);
 			if (!preview.Bounds.IsEmpty)
 				screenMap.Add(preview, preview.Bounds);
 
 			foreach (var kv in preview.Footprint)
-			{
-				List<EditorActorPreview> list;
-				if (!cellMap.TryGetValue(kv.Key, out list))
-				{
-					list = new List<EditorActorPreview>();
-					cellMap.Add(kv.Key, list);
-				}
+				AddPreviewLocation(preview, kv.Key);
 
-				list.Add(preview);
-			}
+			// Fallback to the actor's CenterPosition for the ActorMap if it has no Footprint
+			if (!preview.Footprint.Any())
+				AddPreviewLocation(preview, worldRenderer.World.Map.CellContaining(preview.CenterPosition));
 
 			if (!initialSetup)
 			{
 				UpdateNeighbours(preview.Footprint);
 
-				if (reference.Type == "mpspawn")
+				if (preview.Actor.Type == "mpspawn")
 					SyncMultiplayerCount();
 			}
-
-			return preview;
 		}
 
 		public void Remove(EditorActorPreview preview)
@@ -172,7 +171,10 @@ namespace OpenRA.Mods.Common.Traits
 				var index = int.Parse(name.Substring(5));
 
 				if (index >= newCount)
+				{
 					Players.Players.Remove(name);
+					OnPlayerRemoved();
+				}
 			}
 
 			for (var index = 0; index < newCount; index++)
@@ -203,6 +205,18 @@ namespace OpenRA.Mods.Common.Traits
 			var cells = Util.ExpandFootprint(footprint.Keys, true);
 			foreach (var p in cells.SelectMany(c => PreviewsAt(c)))
 				p.ReplaceInit(new RuntimeNeighbourInit(NeighbouringPreviews(p.Footprint)));
+		}
+
+		void AddPreviewLocation(EditorActorPreview preview, CPos location)
+		{
+			List<EditorActorPreview> list;
+			if (!cellMap.TryGetValue(location, out list))
+			{
+				list = new List<EditorActorPreview>();
+				cellMap.Add(location, list);
+			}
+
+			list.Add(preview);
 		}
 
 		Dictionary<CPos, string[]> NeighbouringPreviews(IReadOnlyDictionary<CPos, SubCell> footprint)
@@ -237,7 +251,7 @@ namespace OpenRA.Mods.Common.Traits
 			if (!previews.Any())
 				return map.Grid.DefaultSubCell;
 
-			for (var i = (int)SubCell.First; i < map.Grid.SubCellOffsets.Length; i++)
+			for (var i = (byte)SubCell.First; i < map.Grid.SubCellOffsets.Length; i++)
 				if (!previews.Any(p => p.Footprint[cell] == (SubCell)i))
 					return (SubCell)i;
 
@@ -249,9 +263,11 @@ namespace OpenRA.Mods.Common.Traits
 			return screenMap.At(worldPx);
 		}
 
+		public Action OnPlayerRemoved = () => { };
+
 		string NextActorName()
 		{
-			var id = previews.Count();
+			var id = previews.Count;
 			var possibleName = "Actor" + id.ToString();
 
 			while (previews.Any(p => p.ID == possibleName))
@@ -276,7 +292,12 @@ namespace OpenRA.Mods.Common.Traits
 		{
 			foreach (var previewsForCell in cellMap)
 				foreach (var preview in previewsForCell.Value)
-					destinationBuffer.Add(Pair.New(previewsForCell.Key, preview.Owner.Color.RGB));
+					destinationBuffer.Add(Pair.New(previewsForCell.Key, preview.Owner.Color));
+		}
+
+		public EditorActorPreview this[string id]
+		{
+			get { return previews.FirstOrDefault(p => p.ID.ToLowerInvariant() == id); }
 		}
 	}
 }

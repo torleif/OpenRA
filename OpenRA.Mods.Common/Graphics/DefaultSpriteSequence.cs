@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2018 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2019 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -11,13 +11,33 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using OpenRA.Graphics;
+using OpenRA.Primitives;
 
 namespace OpenRA.Mods.Common.Graphics
 {
+	public class EmbeddedSpritePalette
+	{
+		readonly uint[] filePalette = null;
+		readonly Dictionary<int, uint[]> framePalettes = null;
+
+		public EmbeddedSpritePalette(uint[] filePalette = null, Dictionary<int, uint[]> framePalettes = null)
+		{
+			this.filePalette = filePalette;
+			this.framePalettes = framePalettes;
+		}
+
+		public bool TryGetPaletteForFrame(int frame, out uint[] palette)
+		{
+			if (framePalettes == null || !framePalettes.TryGetValue(frame, out palette))
+				palette = filePalette;
+
+			return palette != null;
+		}
+	}
+
 	public class DefaultSpriteSequenceLoader : ISpriteSequenceLoader
 	{
 		public Action<string> OnMissingSpriteError { get; set; }
@@ -92,6 +112,8 @@ namespace OpenRA.Mods.Common.Graphics
 		public int ShadowZOffset { get; private set; }
 		public int[] Frames { get; private set; }
 		public Rectangle Bounds { get; private set; }
+
+		public readonly uint[] EmbeddedPalette;
 
 		protected virtual string GetSpriteSrc(ModData modData, TileSet tileSet, string sequence, string animation, string sprite, Dictionary<string, MiniYaml> d)
 		{
@@ -182,16 +204,16 @@ namespace OpenRA.Mods.Common.Graphics
 							"{0}: Sequence {1}.{2}: Length must be <= Frames.Length"
 							.F(info.Nodes[0].Location, sequence, animation));
 
-					if (Start < 0 || Start + Facings * Stride > frameCount)
+					if (Start < 0 || Start + (Facings - 1) * Stride + Length > frameCount)
 						throw new InvalidOperationException(
 							"{5}: Sequence {0}.{1} uses frames [{2}..{3}], but only 0..{4} actually exist"
-							.F(sequence, animation, Start, Start + Facings * Stride - 1, frameCount - 1,
+							.F(sequence, animation, Start, Start + (Facings - 1) * Stride + Length - 1, frameCount - 1,
 								info.Nodes[0].Location));
 
-					if (ShadowStart + Facings * Stride > frameCount)
+					if (ShadowStart + (Facings - 1) * Stride + Length > frameCount)
 						throw new InvalidOperationException(
 							"{5}: Sequence {0}.{1}'s shadow frames use frames [{2}..{3}], but only [0..{4}] actually exist"
-							.F(sequence, animation, ShadowStart, ShadowStart + Facings * Stride - 1, frameCount - 1,
+							.F(sequence, animation, ShadowStart, ShadowStart + (Facings - 1) * Stride + Length - 1, frameCount - 1,
 								info.Nodes[0].Location));
 
 					var usedFrames = new List<int>();
@@ -286,16 +308,23 @@ namespace OpenRA.Mods.Common.Graphics
 					}).ToArray();
 				}
 
+				var exportPalette = LoadField<string>(d, "EmbeddedPalette", null);
+				if (exportPalette != null)
+				{
+					var src = GetSpriteSrc(modData, tileSet, sequence, animation, info.Value, d);
+
+					var metadata = cache.FrameMetadata(src);
+					var i = Frames != null ? Frames[0] : Start;
+					var palettes = metadata != null ? metadata.GetOrDefault<EmbeddedSpritePalette>() : null;
+					if (palettes == null || !palettes.TryGetPaletteForFrame(i, out EmbeddedPalette))
+						throw new YamlException("Cannot export palettes from {0}: frame {1} does not define an embedded palette".F(src, i));
+				}
+
 				var boundSprites = SpriteBounds(sprites, Frames, Start, Facings, Length, Stride, transpose);
 				if (ShadowStart > 0)
 					boundSprites = boundSprites.Concat(SpriteBounds(sprites, Frames, ShadowStart, Facings, Length, Stride, transpose));
 
-				if (boundSprites.Any())
-				{
-					Bounds = boundSprites.First();
-					foreach (var b in boundSprites.Skip(1))
-						Bounds = Rectangle.Union(Bounds, b);
-				}
+				Bounds = boundSprites.Union();
 			}
 			catch (FormatException f)
 			{

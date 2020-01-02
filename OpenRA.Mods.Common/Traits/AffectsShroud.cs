@@ -1,6 +1,6 @@
 #region Copyright & License Information
 /*
- * Copyright 2007-2018 The OpenRA Developers (see AUTHORS)
+ * Copyright 2007-2019 The OpenRA Developers (see AUTHORS)
  * This file is part of OpenRA, which is free software. It is made
  * available to you under the terms of the GNU General Public License
  * as published by the Free Software Foundation, either version 3 of
@@ -22,19 +22,31 @@ namespace OpenRA.Mods.Common.Traits
 		[Desc("If >= 0, prevent cells that are this much higher than the actor from being revealed.")]
 		public readonly int MaxHeightDelta = -1;
 
+		[Desc("If > 0, force visibility to be recalculated if the unit moves within a cell by more than this distance.")]
+		public readonly WDist MoveRecalculationThreshold = new WDist(256);
+
 		[Desc("Possible values are CenterPosition (measure range from the center) and ",
 			"Footprint (measure range from the footprint)")]
 		public readonly VisibilityType Type = VisibilityType.Footprint;
 	}
 
-	public abstract class AffectsShroud : ConditionalTrait<AffectsShroudInfo>, ITick, ISync, INotifyAddedToWorld, INotifyRemovedFromWorld
+	public abstract class AffectsShroud : ConditionalTrait<AffectsShroudInfo>, ITick, ISync, INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyMoving
 	{
 		static readonly PPos[] NoCells = { };
 
 		readonly HashSet<PPos> footprint;
 
-		[Sync] CPos cachedLocation;
-		[Sync] bool cachedTraitDisabled;
+		[Sync]
+		CPos cachedLocation;
+
+		[Sync]
+		WDist cachedRange;
+
+		[Sync]
+		protected bool CachedTraitDisabled { get; private set; }
+
+		bool dirty;
+		WPos cachedPos;
 
 		protected abstract void AddCellsToPlayerShroud(Actor self, Player player, PPos[] uv);
 		protected abstract void RemoveCellsFromPlayerShroud(Actor self, Player player);
@@ -80,12 +92,20 @@ namespace OpenRA.Mods.Common.Traits
 			var projectedPos = centerPosition - new WVec(0, centerPosition.Z, centerPosition.Z);
 			var projectedLocation = self.World.Map.CellContaining(projectedPos);
 			var traitDisabled = IsTraitDisabled;
+			var range = Range;
+			var pos = self.CenterPosition;
 
-			if (cachedLocation == projectedLocation && traitDisabled == cachedTraitDisabled)
+			if (Info.MoveRecalculationThreshold.Length > 0 && (pos - cachedPos).LengthSquared > Info.MoveRecalculationThreshold.LengthSquared)
+				dirty = true;
+
+			if (!dirty && cachedLocation == projectedLocation && cachedRange == range && traitDisabled == CachedTraitDisabled)
 				return;
 
+			cachedRange = range;
 			cachedLocation = projectedLocation;
-			cachedTraitDisabled = traitDisabled;
+			CachedTraitDisabled = traitDisabled;
+			cachedPos = pos;
+			dirty = false;
 
 			var cells = ProjectedCells(self);
 			foreach (var p in self.World.Players)
@@ -100,7 +120,7 @@ namespace OpenRA.Mods.Common.Traits
 			var centerPosition = self.CenterPosition;
 			var projectedPos = centerPosition - new WVec(0, centerPosition.Z, centerPosition.Z);
 			cachedLocation = self.World.Map.CellContaining(projectedPos);
-			cachedTraitDisabled = IsTraitDisabled;
+			CachedTraitDisabled = IsTraitDisabled;
 			var cells = ProjectedCells(self);
 
 			foreach (var p in self.World.Players)
@@ -113,6 +133,13 @@ namespace OpenRA.Mods.Common.Traits
 				RemoveCellsFromPlayerShroud(self, p);
 		}
 
-		public WDist Range { get { return cachedTraitDisabled ? WDist.Zero : Info.Range; } }
+		public virtual WDist Range { get { return CachedTraitDisabled ? WDist.Zero : Info.Range; } }
+
+		void INotifyMoving.MovementTypeChanged(Actor self, MovementType type)
+		{
+			// Recalculate the visiblity at our final stop position
+			if (type == MovementType.None)
+				dirty = true;
+		}
 	}
 }
