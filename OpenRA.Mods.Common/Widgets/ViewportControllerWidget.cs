@@ -97,6 +97,9 @@ namespace OpenRA.Mods.Common.Widgets
 		HotkeyReference[] restoreBookmarkHotkeys;
 		WPos?[] bookmarkPositions;
 
+		public static bool startScrollGesture;
+		public static int2 prevGestureScroll;
+
 		[CustomLintableHotkeyNames]
 		public static IEnumerable<string> LinterHotkeyNames(MiniYamlNode widgetNode, Action<string> emitError, Action<string> emitWarning)
 		{
@@ -418,6 +421,37 @@ namespace OpenRA.Mods.Common.Widgets
 
 			return IsJoystickScrolling || isStandardScrolling;
 		}
+
+
+
+		public override bool HandleGestureInput(MouseInput mi)
+		{
+			if (mi.Event == MouseInputEvent.FingerDown)
+			{
+				startScrollGesture = true;
+				return true;
+			}
+			if (mi.Event == MouseInputEvent.FingerUp)
+			{
+				startScrollGesture = true;
+				return true;
+			}
+
+			if (mi.Event == MouseInputEvent.Gesture)
+			{
+				float2 delta = new float2(prevGestureScroll.X - mi.Location.X, prevGestureScroll.Y - mi.Location.Y);
+				if (!startScrollGesture)
+					worldRenderer.Viewport.Scroll(delta, true);
+
+				prevGestureScroll = mi.Location;
+				startScrollGesture = false;
+
+				return true;
+			}
+
+			return false;
+		}
+
 
 		public override bool YieldMouseFocus(MouseInput mi)
 		{
